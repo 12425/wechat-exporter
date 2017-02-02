@@ -9,9 +9,18 @@
 2. 下载本工具。
 
 3. 修改配置文件 `conf-wechat-exporter.ini`。
- 
+
   * root：iTunes 同步数据所在目录，留空则使用默认目录。
   * dest：导出到。
   * log：将输出保存到文件。请设置全路径。
   * compress：1 表示保存为 .csv.bz2，0 表示保存为 .csv。
 
+  一个示例配置文件：
+
+``` ini
+[DEFAULT]
+# root=
+dest=~\wechat-logs
+log=~\wechat-logs\wechat-exporter.log
+compress=1
+```

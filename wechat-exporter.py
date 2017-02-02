@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # vim: fileencoding=utf-8
 
+# https://stackoverflow.com/questions/3085153/how-to-parse-the-manifest-mbdb-file-in-an-ios-4-0-itunes-backup#8101937
+
+# https://github.com/bo01ean/iphone-tools/blob/master/iPhoneBup.py
+
+# http://daily.zhihu.com/story/8807166
+# http://www.cnphp6.com/archives/78372
+
+
 from os import makedirs, getenv, walk as os_walk
 from re import compile as re_compile
 from bz2 import open as bz2_open
@@ -8,7 +16,7 @@ from csv import writer as csv_writer
 from time import localtime, strftime
 from hashlib import md5, sha1
 from logging import getLogger, StreamHandler, FileHandler, Formatter, INFO, DEBUG
-from os.path import isfile, isdir, dirname, basename, join as path_join
+from os.path import isfile, isdir, dirname, basename, expanduser, join as path_join
 from sqlite3 import connect as sqlite_connect
 from platform import system
 from collections import defaultdict, namedtuple, deque
@@ -244,12 +252,12 @@ class Wechat(object):
       return False
     # dest
     try:
-      self._dest = args['dest'] or None
+      self._dest = expanduser(args['dest']) or None
     except KeyError:
       self._dest = None
     # log
     try:
-      self._log_file = args['log'] or None
+      self._log_file = expanduser(args['log']) or None
     except KeyError:
       self._log_file = None
     if self._log_file:
