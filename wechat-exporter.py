@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 # vim: fileencoding=utf-8
 
-# https://stackoverflow.com/questions/3085153/how-to-parse-the-manifest-mbdb-file-in-an-ios-4-0-itunes-backup#8101937
-
-# https://github.com/bo01ean/iphone-tools/blob/master/iPhoneBup.py
-
-# http://daily.zhihu.com/story/8807166
-# http://www.cnphp6.com/archives/78372
-
-
 from os import makedirs, getenv, walk as os_walk
 from re import compile as re_compile
 from bz2 import open as bz2_open
@@ -27,10 +19,7 @@ def getint(data, offset, intsize):
   """ Retrieve an integer (big-endian) and new offset from the current offset """
   value = 0
   while intsize > 0:
-    try:
-      value = (value << 8) + data[offset]
-    except:
-      from pdb import set_trace; set_trace()
+    value = (value << 8) + data[offset]
     offset += 1
     intsize -= 1
   return value, offset
@@ -45,10 +34,7 @@ def getbytes(data, offset):
 
 def getstr(data, offset):
   value, offset = getbytes(data, offset)
-  try:
-    value = value.decode('utf8')
-  except:
-    from pdb import set_trace; set_trace()
+  value = value.decode('utf8')
   return value, offset
 
 def process_mbdb_file(filename):
@@ -142,53 +128,49 @@ class Wechat(object):
               con.get_query('SELECT CreateTime, Type, Des, Message FROM %s;' % table[0]))
 
   def _parse_name(self, remark):
-    try:
-      # remark[0] is '\n'
-      length = remark[1]
-      offset = 2
-      nickname = remark[2:offset + length].decode('utf8')
-      mmid, dispname = '', ''
-      offset += length
-      while True:
-        if len(remark) <= offset:
+    # remark[0] is '\n'
+    length = remark[1]
+    offset = 2
+    nickname = remark[2:offset + length].decode('utf8')
+    mmid, dispname = '', ''
+    offset += length
+    while True:
+      if len(remark) <= offset:
+        break
+      if remark[offset] == 0x1a: # custom dispname
+        offset += 1
+        length = remark[offset]
+        offset += 1
+        dispname = remark[offset:offset + length].decode('utf8')
+        if mmid and dispname:
           break
-        if remark[offset] == 0x1a: # custom dispname
+        offset += length
+      elif remark[offset] == 0x12: # wechat name
+        offset += 1
+        length = remark[offset]
+        offset += 1
+        mmid = remark[offset:offset + length].decode('utf8')
+        if mmid and dispname:
+          break
+        offset += length
+      elif remark[offset] in (0x22, 0x2a, 0x32, 0x3a):
+        offset += 1
+        length = remark[offset]
+        offset += 1
+        offset += length
+      elif remark[offset] == 0x42:
+        offset += 1
+        length = remark[offset]
+        offset += 1
+        if length != 0 and remark[offset] == 0x01:
           offset += 1
-          length = remark[offset]
-          offset += 1
-          dispname = remark[offset:offset + length].decode('utf8')
-          if mmid and dispname:
-            break
-          offset += length
-        elif remark[offset] == 0x12: # wechat name
-          offset += 1
-          length = remark[offset]
-          offset += 1
-          mmid = remark[offset:offset + length].decode('utf8')
-          if mmid and dispname:
-            break
-          offset += length
-        elif remark[offset] in (0x22, 0x2a, 0x32, 0x3a):
-          offset += 1
-          length = remark[offset]
-          offset += 1
-          offset += length
-        elif remark[offset] == 0x42:
-          offset += 1
-          length = remark[offset]
-          offset += 1
-          if length != 0 and remark[offset] == 0x01:
-            offset += 1
-          offset += length
-        else:
-          from pdb import set_trace; set_trace()
-          offset += 1
-          length = remark[offset]
-          offset += 1
-          offset += length
-      return mmid, nickname, dispname
-    except Exception as e:
-      from pdb import set_trace; set_trace()
+        offset += length
+      else:
+        offset += 1
+        length = remark[offset]
+        offset += 1
+        offset += length
+    return mmid, nickname, dispname
 
   def _get_msg_type(self, tp):
     return {
@@ -206,13 +188,10 @@ class Wechat(object):
     }[tp]
 
   def _get_msg_direction(self, des):
-    try:
-      return {
-        1: '接收',
-        0: '发送',
-      }[des]
-    except:
-      from pdb import set_trace; set_trace()
+    return {
+      1: '接收',
+      0: '发送',
+    }[des]
 
   def _get_sender(self, msg, contacts):
     sender = msg.split(':\n', 1)
@@ -325,7 +304,8 @@ class Wechat(object):
             try:
               msgtype = self._get_msg_type(chat[1])
             except:
-              from pdb import set_trace; set_trace()
+              self.L.error('Unknown msg type: %d', chat[1])
+              msgtype = chat[1]
             direction = self._get_msg_direction(chat[2])
             msg = chat[3].strip()
             sender = self._get_sender(msg, contacts)
