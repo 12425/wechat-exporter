@@ -8,7 +8,9 @@
 
 2. 下载本工具。
 
-3. 修改配置文件 `conf-wechat-exporter.ini`。
+3. 修改配置文件 `conf-wechat-exporter.ini` (见下)。
+
+4. 运行 `wechat-exporter.py`。
 
   * `root`：iTunes 同步数据所在目录，留空则使用默认目录。
   * `dest`：导出到。
