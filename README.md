@@ -4,13 +4,15 @@
 
 使用步骤：
 
-1. 安装 [Python 3](https://www.python.org/downloads/)。
+1. 使用 iTunes 备份 iPhone / iPad。Android 用户需将聊天记录迁移到 iOS 设备后备份。
 
-2. 下载本工具。
+2. 安装 [Python 3](https://www.python.org/downloads/)。
 
-3. 修改配置文件 `conf-wechat-exporter.ini` (见下)。
+3. 下载本工具。
 
-4. 运行 `wechat-exporter.py`。
+4. 修改配置文件 `conf-wechat-exporter.ini` (见下)。
+
+5. 运行 `wechat-exporter.py`。
 
   * `root`：iTunes 同步数据所在目录，留空则使用默认目录。
   * `dest`：导出到。
