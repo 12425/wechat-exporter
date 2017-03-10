@@ -43,7 +43,7 @@ def process_mbdb_file(filename):
   if data[0:4] != b"mbdb":
     raise Exception("This does not look like an MBDB file")
   offset = 4
-  offset += 2 # value x05 x00, not sure what this is
+  offset += 2  # value x05 x00, not sure what this is
   size = len(data)
   while offset < size:
     fileinfo = {}
@@ -137,7 +137,7 @@ class Wechat(object):
     while True:
       if len(remark) <= offset:
         break
-      if remark[offset] == 0x1a: # custom dispname
+      if remark[offset] == 0x1a:  # custom dispname
         offset += 1
         length = remark[offset]
         offset += 1
@@ -145,7 +145,7 @@ class Wechat(object):
         if mmid and dispname:
           break
         offset += length
-      elif remark[offset] == 0x12: # wechat name
+      elif remark[offset] == 0x12:  # wechat name
         offset += 1
         length = remark[offset]
         offset += 1
@@ -177,6 +177,7 @@ class Wechat(object):
       1: '文本',
       3: '图片',
       34: '语音',
+      35: '邮件',
       42: '名片',
       43: '视频',
       44: '视频',
