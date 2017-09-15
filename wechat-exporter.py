@@ -110,13 +110,19 @@ class Wechat(object):
 
   def _load_contacts(self, db):
     with Sqlite(db) as con:
-      tables = con.get_query('SELECT userName, dbContactRemark FROM Friend')
+      tables = con.get_query('SELECT userName, dbContactRemark, dbContactProfile, dbContactChatRoom FROM Friend')
       contacts = {}
-      for user, remark in tables:
+      groups_id = {}
+      for user, remark, profile, room in tables:
         namehash = md5(user.encode('utf8')).hexdigest()
         mmid, nickname, dispname = self._parse_name(remark)
-        contacts[namehash] = (mmid or user, nickname, dispname)
-      return contacts
+        country, state, city, signature = self._parse_profile(profile)
+        contacts[namehash] = (user, mmid, nickname, dispname, country, state, city, signature)
+        if room:
+          group_name = self._get_valid_filename((dispname, nickname, mmid, user))
+          groups_id[group_name] = self._get_group_info(room)
+      groups = {k: [self._get_contact_info(x, contacts) for x in v] for k, v in groups_id.items()}
+      return contacts, groups
 
   def _load_chats(self, db):
     with Sqlite(db) as con:
@@ -172,6 +178,54 @@ class Wechat(object):
         offset += length
     return mmid, nickname, dispname
 
+  def _parse_profile(self, profile):
+    # profile[0] is '\b'
+    offset = 1
+    country, state, city, signature = [''] * 4
+    if profile[offset] > 0:
+      offset += 1
+      while True:
+        if len(profile) <= offset:
+          break
+        if profile[offset] == 0x12:  # Country
+          offset += 1
+          length = profile[offset]
+          offset += 1
+          country = profile[offset:offset + length].decode('utf8')
+          offset += length
+        elif profile[offset] == 0x1a:  # State
+          offset += 1
+          length = profile[offset]
+          offset += 1
+          state = profile[offset:offset + length].decode('utf8')
+          offset += length
+        elif profile[offset] == 0x22:  # City
+          offset += 1
+          length = profile[offset]
+          offset += 1
+          city = profile[offset:offset + length].decode('utf8')
+          offset += length
+        elif profile[offset] == 0x2a:  # Signature
+          offset += 1
+          length = profile[offset]
+          offset += 1
+          signature = profile[offset:offset + length].decode('utf8')
+          offset += length
+    return (country, state, city, signature)
+
+  def _get_group_info(self, room):
+    if not room:
+      return []
+    # room[0] is '\n'
+    length = room[1]
+    if length & 0b10000000:
+      length = (room[1] & 0b01111111) + (room[2] << 7)
+      offset = 3
+    else:
+      offset = 2
+    members = room[offset:offset + length].decode('utf8')
+    return members.split(';')
+
   def _get_msg_type(self, tp):
     return {
       1: '文本',
@@ -194,15 +248,21 @@ class Wechat(object):
       0: '发送',
     }[des]
 
+  def _get_contact_info(self, mmid, contacts):
+    if not mmid:
+      return [''] * (len(contacts[next(iter(contacts))]))
+    namehash = md5(mmid.encode('utf8')).hexdigest()
+    try:
+      return contacts[namehash]
+    except KeyError:
+      return [mmid] + [''] * (len(contacts[next(iter(contacts))]) - 1)
+
   def _get_sender(self, msg, contacts):
     sender = msg.split(':\n', 1)
     if len(sender) == 2:
-      namehash = md5(sender[0].encode('utf8')).hexdigest()
-      try:
-        return list(contacts[namehash]) + [sender[1]]
-      except KeyError:
-        pass
-    return None
+      info = self._get_contact_info(sender[0], contacts)
+      return info, sender[1]
+    return self._get_contact_info(None, contacts), msg
 
   def _get_valid_filename(self, names):
     for name in names:
@@ -211,7 +271,7 @@ class Wechat(object):
             'gbk', 'ignore').decode('gbk').strip()
         if n:
           return n
-    L.exception('\t'.join(names))
+    self.L.exception('\t'.join(names))
     return ''
 
   def load_conf(self):
@@ -251,8 +311,8 @@ class Wechat(object):
       self.L.addHandler(handler)
     # compress
     try:
-      self._compress = args['compress'] or None
-    except KeyError:
+      self._compress = int(args['compress']) or None
+    except (KeyError, ValueError):
       self._compress = None
     return True
 
@@ -291,14 +351,15 @@ class Wechat(object):
   def parse_mmdb(self):
     def iter_conversation():
       for i, (docpath, path, mm_db, contacts_db) in enumerate(self.mmdb):
-        contacts = self._load_contacts(path_join(path, contacts_db))
+        contacts, groups = self._load_contacts(path_join(path, contacts_db))
+        i = str(i)
         for namehash, chats in self._load_chats(path_join(path, mm_db)):
           messages = deque()
           try:
-            mmid, nickname, dispname = contacts[namehash]
+            uid, mmid, nickname, dispname = contacts[namehash][:4]
           except KeyError:
-            mmid, nickname, dispname = '', '', '未保存的群' + namehash
-          filename = self._get_valid_filename((dispname, nickname, mmid))
+            uid, mmid, nickname, dispname = '', '', '', '未保存的群' + namehash
+          filename = self._get_valid_filename((dispname, nickname, mmid, uid))
           self.L.debug(filename)
           for chat in chats:
             timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
@@ -309,33 +370,43 @@ class Wechat(object):
               msgtype = chat[1]
             direction = self._get_msg_direction(chat[2])
             msg = chat[3].strip()
-            sender = self._get_sender(msg, contacts)
-            if sender is not None:
-              s_mmid, s_nick, s_disp, s_msg = sender
-              messages.append((timestamp, msgtype, direction,
-                  s_mmid, s_nick, s_disp, s_msg))
-            else:
-              messages.append((timestamp, msgtype, direction,
-                  mmid, nickname, dispname, msg))
-          yield str(i), filename, messages
+            sender, s_msg = self._get_sender(msg, contacts)
+            s_uid, s_mmid, s_nick, s_disp = sender[:4]
+            messages.append((timestamp, msgtype, direction, s_uid or uid,
+                s_mmid or mmid, s_nick or nickname, s_disp or dispname,
+                s_msg or msg))
+          yield i, filename, messages, 'log'
+        # Save contacts
+        yield i, 'Contacts', contacts.values(), 'contacts'
+        # Save groups
+        for k, v in groups.items():
+          yield i, path_join('Groups', k), v, 'group'
     self.conversations = iter_conversation()
 
   def save_log(self):
-    for i, filename, messages in self.conversations:
+    for i, filename, messages, category in self.conversations:
       if not self._dest:
         continue
+      if category == 'log':
+        header = ('时刻', '消息类型', '消息方向', 'ID', '微信号', '昵称', '显示名称', '内容')
+        fname = filename
+      elif category == 'contacts':
+        header = ('ID', '微信号', '昵称', '备注', '国', '省', '市', '签名')
+        fname = path_join(filename, 'contacts')
+      elif category == 'group':
+        header = ('ID', '微信号', '昵称', '备注', '国', '省', '市', '签名')
+        fname = filename
+      fpath = path_join(self._dest, i, fname)
       try:
-        makedirs(path_join(self._dest, i))
+        makedirs(dirname(fpath))
       except FileExistsError:
         pass
       if self._compress:
-        fo = bz2_open(path_join(self._dest, i, filename + '.csv.bz2'),
-             'wt', encoding='utf8')
+        fo = bz2_open(fpath + '.csv.bz2', 'wt', encoding='utf8')
       else:
-        fo = open(path_join(self._dest, i, filename + '.csv'),
-             'w', encoding='utf8')
+        fo = open(fpath + '.csv', 'w', encoding='utf8')
       wt = csv_writer(fo)
-      wt.writerow(('时刻', '消息类型', '消息方向', '微信号', '昵称', '显示名称', '内容'))
+      wt.writerow(header)
       wt.writerows(messages)
       fo.close()
 
