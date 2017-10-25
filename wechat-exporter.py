@@ -113,16 +113,23 @@ class Wechat(object):
       tables = con.get_query('SELECT userName, dbContactRemark, dbContactProfile, dbContactChatRoom FROM Friend')
       contacts = {}
       groups_id = {}
+      filenames = defaultdict(set)
       for user, remark, profile, room in tables:
         namehash = md5(user.encode('utf8')).hexdigest()
         mmid, nickname, dispname = self._parse_name(remark)
+        filename = self._get_valid_filename((dispname, nickname, mmid, user))
+        filenames[filename].add(namehash)
         country, state, city, signature = self._parse_profile(profile)
         contacts[namehash] = (user, mmid, nickname, dispname, country, state, city, signature)
         if room:
           group_name = self._get_valid_filename((dispname, nickname, mmid, user))
           groups_id[group_name] = self._get_group_info(room)
       groups = {k: [self._get_contact_info(x, contacts) for x in v] for k, v in groups_id.items()}
-      return contacts, groups
+      duplicates = set()
+      for f, hashes in filenames.items():
+        if len(hashes) > 1:
+          duplicates |= hashes
+      return contacts, groups, duplicates
 
   def _load_chats(self, db):
     with Sqlite(db) as con:
@@ -351,7 +358,7 @@ class Wechat(object):
   def parse_mmdb(self):
     def iter_conversation():
       for i, (docpath, path, mm_db, contacts_db) in enumerate(self.mmdb):
-        contacts, groups = self._load_contacts(path_join(path, contacts_db))
+        contacts, groups, duplicates = self._load_contacts(path_join(path, contacts_db))
         i = str(i)
         for namehash, chats in self._load_chats(path_join(path, mm_db)):
           messages = deque()
@@ -360,6 +367,8 @@ class Wechat(object):
           except KeyError:
             uid, mmid, nickname, dispname = '', '', '', '未保存的群' + namehash
           filename = self._get_valid_filename((dispname, nickname, mmid, uid))
+          if namehash in duplicates:
+            filename += '({})'.format(self._get_valid_filename((mmid, uid)))
           self.L.debug(filename)
           for chat in chats:
             timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
