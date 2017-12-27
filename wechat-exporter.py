@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # vim: fileencoding=utf-8
 
-from os import makedirs, getenv, walk as os_walk
+from os import makedirs, getenv, sep as os_sep, walk as os_walk
 from re import compile as re_compile
 from bz2 import open as bz2_open
 from csv import writer as csv_writer
@@ -74,7 +74,6 @@ def process_mbdb_file(filename):
     mbdb[fileinfo['start_offset']] = fileinfo
   return mbdb
 
-
 class Sqlite(object):
   def __init__(self, fname):
     if not isfile(fname):
@@ -93,6 +92,17 @@ class Sqlite(object):
     cur.execute(query)
     return cur.fetchall()
 
+def process_db_file(filename):
+  mbdb = {}
+  with Sqlite(filename) as conn:
+    rows = conn.get_query('SELECT * FROM Files WHERE domain="AppDomain-com.tencent.xin"')
+    for fileID, domain, relativePath, flags, file in rows:
+      fileinfo = {}
+      fileinfo['domain'] = domain
+      fileinfo['filename'] = relativePath
+      fileinfo['filehash'] = '%s%s%s' % (fileID[:2], os_sep, fileID)
+      mbdb[fileID] = fileinfo
+  return mbdb
 
 class Wechat(object):
   _conf_file = path_join(dirname(__file__), 'conf-wechat-exporter.ini')
@@ -330,12 +340,19 @@ class Wechat(object):
           mbdb = path_join(self._root, f, 'Manifest.mbdb')
           if isfile(mbdb):
             yield mbdb
+          # compatible with latest backup format
+          db = path_join(self._root, f, 'Manifest.db')
+          if isfile(db):
+            yield db
     self.mbdb = iter_mbdb()
 
   def handle_mbdb(self):
     def iter_mmdb():
       for db in self.mbdb:
-        mbdb = process_mbdb_file(db)
+        if db[-3:] == '.db':
+          mbdb = process_db_file(db)
+        else:
+          mbdb = process_mbdb_file(db)
         mmsqlite = defaultdict(lambda: defaultdict(str))
         self.L.info('Finding in %s', dirname(db))
         for offset, fileinfo in mbdb.items():
