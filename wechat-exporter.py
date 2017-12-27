@@ -4,7 +4,7 @@
 from os import makedirs, getenv, sep as os_sep, walk as os_walk
 from re import compile as re_compile
 from bz2 import open as bz2_open
-from csv import writer as csv_writer
+from csv import QUOTE_ALL as csv_QUOTE_ALL, writer as csv_writer
 from time import localtime, strftime
 from hashlib import md5, sha1
 from logging import getLogger, StreamHandler, FileHandler, Formatter, INFO, DEBUG
@@ -431,7 +431,7 @@ class Wechat(object):
         fo = bz2_open(fpath + '.csv.bz2', 'wt', encoding='utf8')
       else:
         fo = open(fpath + '.csv', 'w', encoding='utf8')
-      wt = csv_writer(fo)
+      wt = csv_writer(fo, quoting=csv_QUOTE_ALL, lineterminator='\n')
       wt.writerow(header)
       wt.writerows(messages)
       fo.close()
