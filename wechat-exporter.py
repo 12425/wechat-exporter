@@ -233,7 +233,12 @@ class Wechat(object):
     members = room[offset:offset + length].decode('utf8')
     return members.split(';')
 
-  def _get_msg_type(self, tp):
+  def _get_msg_type(self, tp, content):
+    if tp == 50:
+      if content == 'voip_content_voice':
+        return '语音通话'
+      elif content == 'voip_content_video':
+        return '视频通话'
     return {
       1: '文本',
       3: '图片',
@@ -245,6 +250,7 @@ class Wechat(object):
       47: '表情',
       48: '位置',
       49: '链接',
+      50: '通话',
       62: '视频',
       10000: '系统消息',
     }[tp]
@@ -373,7 +379,7 @@ class Wechat(object):
           for chat in chats:
             timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
             try:
-              msgtype = self._get_msg_type(chat[1])
+              msgtype = self._get_msg_type(chat[1], chat[3])
             except:
               self.L.error('Unknown msg type: %d', chat[1])
               msgtype = chat[1]
