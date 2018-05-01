@@ -8,7 +8,7 @@
 
 2. 安装 [Python 3](https://www.python.org/downloads/)。
 
-3. 下载本工具。
+3. 下载[本工具](//github.com/12425/wechat-exporter/archive/master.zip)。
 
 4. 修改配置文件 `conf-wechat-exporter.ini` (见下)。
 
