@@ -4,7 +4,7 @@
 from os import makedirs, getenv, sep as os_sep, walk as os_walk
 from re import compile as re_compile
 from bz2 import open as bz2_open
-from csv import QUOTE_ALL as csv_QUOTE_ALL, writer as csv_writer
+from csv import writer as csv_writer
 from time import localtime, strftime
 from hashlib import md5, sha1
 from logging import getLogger, StreamHandler, FileHandler, Formatter, INFO, DEBUG
@@ -74,6 +74,7 @@ def process_mbdb_file(filename):
     mbdb[fileinfo['start_offset']] = fileinfo
   return mbdb
 
+
 class Sqlite(object):
   def __init__(self, fname):
     if not isfile(fname):
@@ -92,17 +93,6 @@ class Sqlite(object):
     cur.execute(query)
     return cur.fetchall()
 
-def process_db_file(filename):
-  mbdb = {}
-  with Sqlite(filename) as conn:
-    rows = conn.get_query('SELECT * FROM Files WHERE domain="AppDomain-com.tencent.xin"')
-    for fileID, domain, relativePath, flags, file in rows:
-      fileinfo = {}
-      fileinfo['domain'] = domain
-      fileinfo['filename'] = relativePath
-      fileinfo['filehash'] = '%s%s%s' % (fileID[:2], os_sep, fileID)
-      mbdb[fileID] = fileinfo
-  return mbdb
 
 class Wechat(object):
   _conf_file = path_join(dirname(__file__), 'conf-wechat-exporter.ini')
@@ -117,6 +107,21 @@ class Wechat(object):
     handler = StreamHandler()
     handler.setFormatter(Formatter('%(message)s'))
     self.L.addHandler(handler)
+
+  def _load_manifest_db(self, db):
+    # Manifest.mbdb
+    if db.endswith('.mbdb'):
+      return process_mbdb_file(db)
+    # Manifest.db
+    mbdb = {}
+    with Sqlite(db) as con:
+      tables = con.get_query('SELECT fileID, relativePath FROM Files WHERE domain="AppDomain-com.tencent.xin" AND relativePath!=""')
+      for fid, path in tables:
+        fileinfo = {}
+        fileinfo['filename'] = path
+        fileinfo['filehash'] = '%s%s%s' % (fid[:2], os_sep, fid)
+        mbdb[fid] = fileinfo
+    return mbdb
 
   def _load_contacts(self, db):
     with Sqlite(db) as con:
@@ -243,7 +248,12 @@ class Wechat(object):
     members = room[offset:offset + length].decode('utf8')
     return members.split(';')
 
-  def _get_msg_type(self, tp):
+  def _get_msg_type(self, tp, content):
+    if tp == 50:
+      if content == 'voip_content_voice':
+        return '语音通话'
+      elif content == 'voip_content_video':
+        return '视频通话'
     return {
       1: '文本',
       3: '图片',
@@ -255,8 +265,11 @@ class Wechat(object):
       47: '表情',
       48: '位置',
       49: '链接',
+      50: '通话',
       62: '视频',
+      64: '语音通话',
       10000: '系统消息',
+      10002: '撤回的消息'
     }[tp]
 
   def _get_msg_direction(self, des):
@@ -337,22 +350,19 @@ class Wechat(object):
     def iter_mbdb():
       for f in next(os_walk(self._root))[1]:
         if f != 'Snapshot':
-          mbdb = path_join(self._root, f, 'Manifest.mbdb')
+          mbdb = path_join(self._root, f, 'Manifest.db')
           if isfile(mbdb):
             yield mbdb
-          # compatible with latest backup format
-          db = path_join(self._root, f, 'Manifest.db')
-          if isfile(db):
-            yield db
+          else:
+            mbdb = path_join(self._root, f, 'Manifest.mbdb')
+            if isfile(mbdb):
+              yield mbdb
     self.mbdb = iter_mbdb()
 
   def handle_mbdb(self):
     def iter_mmdb():
       for db in self.mbdb:
-        if db[-3:] == '.db':
-          mbdb = process_db_file(db)
-        else:
-          mbdb = process_mbdb_file(db)
+        mbdb = self._load_manifest_db(db)
         mmsqlite = defaultdict(lambda: defaultdict(str))
         self.L.info('Finding in %s', dirname(db))
         for offset, fileinfo in mbdb.items():
@@ -390,8 +400,8 @@ class Wechat(object):
           for chat in chats:
             timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
             try:
-              msgtype = self._get_msg_type(chat[1])
-            except:
+              msgtype = self._get_msg_type(chat[1], chat[3])
+            except KeyError:
               self.L.error('Unknown msg type: %d', chat[1])
               msgtype = chat[1]
             direction = self._get_msg_direction(chat[2])
@@ -431,7 +441,7 @@ class Wechat(object):
         fo = bz2_open(fpath + '.csv.bz2', 'wt', encoding='utf8')
       else:
         fo = open(fpath + '.csv', 'w', encoding='utf8')
-      wt = csv_writer(fo, quoting=csv_QUOTE_ALL, lineterminator='\n')
+      wt = csv_writer(fo)
       wt.writerow(header)
       wt.writerows(messages)
       fo.close()
