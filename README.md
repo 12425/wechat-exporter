@@ -29,6 +29,10 @@ log=~\wechat-logs\wechat-exporter.log
 compress=1
 ```
 
+测试环境
+* iPhone 4S (iOS 9.3.5)
+* iPhone 6 (iOS 11.4)
+
 参考
 * [python backup tools for IOS5+](https://github.com/bo01ean/iphone-tools "python backup tools for IOS5+ - GitHub")
 * [iOS 微信的本地存储结构简析](https://zhuanlan.zhihu.com/p/22474033 "iOS 微信的本地存储结构简析 - 伪红学家的文章 - 知乎专栏")

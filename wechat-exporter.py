@@ -115,11 +115,12 @@ class Wechat(object):
     # Manifest.db
     mbdb = {}
     with Sqlite(db) as con:
-      tables = con.get_query('SELECT fileID, relativePath FROM Files WHERE domain="AppDomain-com.tencent.xin" AND relativePath!=""')
-      for fid, path in tables:
+      tables = con.get_query('SELECT fileID, domain, relativePath FROM Files WHERE relativePath!=""')
+      for fid, domain, path in tables:
         fileinfo = {}
         fileinfo['filename'] = path
         fileinfo['filehash'] = '%s%s%s' % (fid[:2], os_sep, fid)
+        fileinfo['domain'] = domain
         mbdb[fid] = fileinfo
     return mbdb
 
