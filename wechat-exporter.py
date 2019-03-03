@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # vim: fileencoding=utf-8
 
-from os import makedirs, getenv, walk as os_walk
+from os import makedirs, getenv, sep as os_sep, walk as os_walk
 from re import compile as re_compile
 from bz2 import open as bz2_open
 from csv import writer as csv_writer
@@ -107,6 +107,21 @@ class Wechat(object):
     handler = StreamHandler()
     handler.setFormatter(Formatter('%(message)s'))
     self.L.addHandler(handler)
+
+  def _load_manifest_db(self, db):
+    # Manifest.mbdb
+    if db.endswith('.mbdb'):
+      return process_mbdb_file(db)
+    # Manifest.db
+    mbdb = {}
+    with Sqlite(db) as con:
+      tables = con.get_query('SELECT fileID, relativePath FROM Files WHERE domain="AppDomain-com.tencent.xin" AND relativePath!=""')
+      for fid, path in tables:
+        fileinfo = {}
+        fileinfo['filename'] = path
+        fileinfo['filehash'] = '%s%s%s' % (fid[:2], os_sep, fid)
+        mbdb[fid] = fileinfo
+    return mbdb
 
   def _load_contacts(self, db):
     with Sqlite(db) as con:
@@ -252,7 +267,9 @@ class Wechat(object):
       49: '链接',
       50: '通话',
       62: '视频',
+      64: '语音通话',
       10000: '系统消息',
+      10002: '撤回的消息'
     }[tp]
 
   def _get_msg_direction(self, des):
@@ -333,15 +350,19 @@ class Wechat(object):
     def iter_mbdb():
       for f in next(os_walk(self._root))[1]:
         if f != 'Snapshot':
-          mbdb = path_join(self._root, f, 'Manifest.mbdb')
+          mbdb = path_join(self._root, f, 'Manifest.db')
           if isfile(mbdb):
             yield mbdb
+          else:
+            mbdb = path_join(self._root, f, 'Manifest.mbdb')
+            if isfile(mbdb):
+              yield mbdb
     self.mbdb = iter_mbdb()
 
   def handle_mbdb(self):
     def iter_mmdb():
       for db in self.mbdb:
-        mbdb = process_mbdb_file(db)
+        mbdb = self._load_manifest_db(db)
         mmsqlite = defaultdict(lambda: defaultdict(str))
         self.L.info('Finding in %s', dirname(db))
         for offset, fileinfo in mbdb.items():
@@ -380,7 +401,7 @@ class Wechat(object):
             timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
             try:
               msgtype = self._get_msg_type(chat[1], chat[3])
-            except:
+            except KeyError:
               self.L.error('Unknown msg type: %d', chat[1])
               msgtype = chat[1]
             direction = self._get_msg_direction(chat[2])
