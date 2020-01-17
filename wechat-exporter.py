@@ -342,9 +342,14 @@ class Wechat(object):
       self.L.addHandler(handler)
     # compress
     try:
-      self._compress = int(args['compress']) or None
+      self._compress = bool(int(args['compress'])) or False
     except (KeyError, ValueError):
-      self._compress = None
+      self._compress = False
+    # bom
+    try:
+      self._bom = bool(int(args['bom'])) or False
+    except (KeyError, ValueError):
+      self._bom = False
     return True
 
   def get_mbdb(self):
@@ -438,10 +443,14 @@ class Wechat(object):
         makedirs(dirname(fpath))
       except FileExistsError:
         pass
-      if self._compress:
-        fo = bz2_open(fpath + '.csv.bz2', 'wt', encoding='utf8')
+      if self._bom:
+        encoding = 'utf-8-sig'
       else:
-        fo = open(fpath + '.csv', 'w', encoding='utf8')
+        encoding = 'utf8'
+      if self._compress:
+        fo = bz2_open(fpath + '.csv.bz2', 'wt', encoding=encoding, newline='')
+      else:
+        fo = open(fpath + '.csv', 'w', encoding=encoding, newline='')
       wt = csv_writer(fo)
       wt.writerow(header)
       wt.writerows(messages)

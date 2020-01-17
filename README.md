@@ -18,15 +18,16 @@
   * `dest`：导出到。
   * `log`：将输出保存到文件。请设置全路径。
   * `compress`：`1` 表示保存为 `.csv.bz2`，`0` 表示保存为 `.csv`。
+  * `bom`：`1` 表示保存为 `UTF-8 with BOM` 以兼容 MS Excel，`0` 表示保存为 `UTF-8`。
 
   一个示例配置文件：
 
 ``` ini
 [DEFAULT]
-# root=
-dest=~\wechat-logs
-log=~\wechat-logs\wechat-exporter.log
+dest=~/wechat-logs
+log=~/wechat-logs/wechat-exporter.log
 compress=1
+bom=0
 ```
 
 测试环境
