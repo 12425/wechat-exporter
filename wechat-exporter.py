@@ -135,8 +135,8 @@ class Wechat(object):
         mmid, nickname, dispname = self._parse_name(remark)
         filename = self._get_valid_filename((dispname, nickname, mmid, user))
         filenames[filename].add(namehash)
-        country, state, city, signature = self._parse_profile(profile)
-        contacts[namehash] = (user, mmid, nickname, dispname, country, state, city, signature)
+        gender, country, state, city, signature = self._parse_profile(profile)
+        contacts[namehash] = (user, mmid, nickname, dispname, gender, country, state, city, signature)
         if room:
           group_name = self._get_valid_filename((dispname, nickname, mmid, user))
           groups_id[group_name] = self._get_group_info(room)
@@ -156,85 +156,70 @@ class Wechat(object):
           yield (namehash,
               con.get_query('SELECT CreateTime, Type, Des, Message FROM %s;' % table[0]))
 
+  def _get_val_offset(self, buf, start):
+    length = buf[start]
+    offset = start + 1
+    val = buf[offset : offset + length].decode('utf8', 'backslashreplace')
+    return val, offset + length
+
   def _parse_name(self, remark):
-    # remark[0] is '\n'
-    length = remark[1]
-    offset = 2
-    nickname = remark[2:offset + length].decode('utf8')
-    mmid, dispname = '', ''
-    offset += length
+    mmid, nickname, dispname, chatroom = [''] * 4
+    if not remark:
+      return mmid, nickname, dispname
+    offset = 0
+    length = len(remark)
     while True:
-      if len(remark) <= offset:
+      if offset >= length:
         break
-      if remark[offset] == 0x1a:  # custom dispname
-        offset += 1
-        length = remark[offset]
-        offset += 1
-        dispname = remark[offset:offset + length].decode('utf8')
-        if mmid and dispname:
-          break
-        offset += length
-      elif remark[offset] == 0x12:  # wechat name
-        offset += 1
-        length = remark[offset]
-        offset += 1
-        mmid = remark[offset:offset + length].decode('utf8')
-        if mmid and dispname:
-          break
-        offset += length
-      elif remark[offset] in (0x22, 0x2a, 0x32, 0x3a):
-        offset += 1
-        length = remark[offset]
-        offset += 1
-        offset += length
-      elif remark[offset] == 0x42:
-        offset += 1
-        length = remark[offset]
-        offset += 1
-        if length != 0 and remark[offset] == 0x01:
-          offset += 1
-        offset += length
+      if remark[offset] == 0x0a:    # 昵称
+        nickname, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x12:  # 微信号
+        mmid, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x1a:  # 备注名
+        dispname, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x22:  # 备注名自动拼音
+        __, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x2a:  # 备注名自动首字母
+        __, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x32:  # 昵称自动拼音 或 chatroom
+        chatroom, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x3a:  # ?
+        __, offset = self._get_val_offset(remark, offset + 1)
+      elif remark[offset] == 0x42:  # 标签
+        __, offset = self._get_val_offset(remark, offset + 1)
       else:
-        offset += 1
-        length = remark[offset]
-        offset += 1
-        offset += length
-    return mmid, nickname, dispname
+        self.L.debug('remark %x: %r', remark[offset], remark)
+        __, offset = self._get_val_offset(remark, offset + 1)
+    return mmid, nickname or chatroom, dispname
 
   def _parse_profile(self, profile):
-    # profile[0] is '\b'
-    offset = 1
-    country, state, city, signature = [''] * 4
-    if profile[offset] > 0:
-      offset += 1
-      while True:
-        if len(profile) <= offset:
-          break
-        if profile[offset] == 0x12:  # Country
-          offset += 1
-          length = profile[offset]
-          offset += 1
-          country = profile[offset:offset + length].decode('utf8')
-          offset += length
-        elif profile[offset] == 0x1a:  # State
-          offset += 1
-          length = profile[offset]
-          offset += 1
-          state = profile[offset:offset + length].decode('utf8')
-          offset += length
-        elif profile[offset] == 0x22:  # City
-          offset += 1
-          length = profile[offset]
-          offset += 1
-          city = profile[offset:offset + length].decode('utf8')
-          offset += length
-        elif profile[offset] == 0x2a:  # Signature
-          offset += 1
-          length = profile[offset]
-          offset += 1
-          signature = profile[offset:offset + length].decode('utf8')
-          offset += length
-    return (country, state, city, signature)
+    gender, country, state, city, signature = [''] * 5
+    if not profile:
+      return gender, country, state, city, signature
+    offset = 0
+    length = len(profile)
+    while True:
+      if offset >= length:
+        break
+      if profile[offset] == 0x08:
+        gender = {
+          1: '男',
+          2: '女',
+        }.get(profile[offset + 1], '')
+        offset += 2
+      elif profile[offset] == 0x12:
+        country, offset = self._get_val_offset(profile, offset + 1)
+      elif profile[offset] == 0x1a:
+        state, offset = self._get_val_offset(profile, offset + 1)
+      elif profile[offset] == 0x22:
+        city, offset = self._get_val_offset(profile, offset + 1)
+      elif profile[offset] == 0x2a:
+        signature, offset = self._get_val_offset(profile, offset + 1)
+      elif profile[offset] == 0x82:
+        __, offset = self._get_val_offset(profile, offset + 1)
+      else:
+        self.L.debug('profile %x: %r', profile[offset], profile)
+    return gender, country, state, city, signature
 
   def _get_group_info(self, room):
     if not room:
@@ -433,7 +418,7 @@ class Wechat(object):
         header = ('时刻', '消息类型', '消息方向', 'ID', '微信号', '昵称', '显示名称', '内容')
         fname = filename
       elif category == 'contacts':
-        header = ('ID', '微信号', '昵称', '备注', '国', '省', '市', '签名')
+        header = ('ID', '微信号', '昵称', '备注', '性别', '国', '省', '市', '签名')
         fname = path_join(filename, 'contacts')
       elif category == 'group':
         header = ('ID', '微信号', '昵称', '备注', '国', '省', '市', '签名')
