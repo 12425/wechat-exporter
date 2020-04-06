@@ -215,6 +215,8 @@ class Wechat(object):
         city, offset = self._get_val_offset(profile, offset + 1)
       elif profile[offset] == 0x2a:
         signature, offset = self._get_val_offset(profile, offset + 1)
+      elif profile[offset] == 0x81:  # ?
+        offset += 1
       elif profile[offset] == 0x82:
         __, offset = self._get_val_offset(profile, offset + 1)
       else:
@@ -415,7 +417,7 @@ class Wechat(object):
       if not self._dest:
         continue
       if category == 'log':
-        header = ('时刻', '消息类型', '消息方向', 'ID', '微信号', '昵称', '显示名称', '内容')
+        header = ('时刻', '消息类型', '消息方向', 'ID', '微信号', '昵称', '备注名', '内容')
         fname = filename
       elif category == 'contacts':
         header = ('ID', '微信号', '昵称', '备注', '性别', '国', '省', '市', '签名')
