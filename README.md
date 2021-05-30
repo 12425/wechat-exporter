@@ -1,6 +1,6 @@
 # wechat-exporter
 
-本工具可导出微信文本聊天记录。
+本工具可导出微信**文本**聊天记录。
 
 使用步骤：
 
@@ -14,11 +14,7 @@
 
 5. 运行 `wechat-exporter.py`。
 
-  * `root`：iTunes 同步数据所在目录，留空则使用默认目录。
-  * `dest`：导出到。
-  * `log`：将输出保存到文件。请设置全路径。
-  * `compress`：`1` 表示保存为 `.csv.bz2`，`0` 表示保存为 `.csv`。
-  * `bom`：`1` 表示保存为 `UTF-8 with BOM` 以兼容 MS Excel，`0` 表示保存为 `UTF-8`。
+* * *
 
   一个示例配置文件：
 
@@ -29,6 +25,13 @@ log=~/wechat-logs/wechat-exporter.log
 compress=1
 bom=0
 ```
+
+* `root`：iTunes 同步数据所在目录，留空则使用默认目录。
+* `dest`：导出到。
+* `log`：将输出保存到文件。请设置全路径。
+* `compress`：`1` 表示保存为 `.csv.bz2`，`0` 表示保存为 `.csv`。
+* `bom`：`1` 表示保存为 `UTF-8 with BOM` 以兼容 MS Excel，`0` 表示保存为 `UTF-8`。
+
 
 测试环境
 * iPhone 4S (iOS 9.3.5)

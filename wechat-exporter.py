@@ -8,7 +8,7 @@ from csv import writer as csv_writer
 from time import localtime, strftime
 from hashlib import md5, sha1
 from logging import getLogger, StreamHandler, FileHandler, Formatter, INFO, DEBUG
-from os.path import isfile, isdir, dirname, basename, expanduser, join as path_join
+from os.path import isfile, isdir, dirname, basename, expandvars, expanduser, join as path_join
 from sqlite3 import connect as sqlite_connect
 from platform import system
 from collections import defaultdict, namedtuple, deque
@@ -157,8 +157,10 @@ class Wechat(object):
               con.get_query('SELECT CreateTime, Type, Des, Message FROM %s;' % table[0]))
 
   def _get_val_offset(self, buf, start):
-    length = buf[start]
     offset = start + 1
+    if start >= len(buf):
+      return '', offset
+    length = buf[start]
     val = buf[offset : offset + length].decode('utf8', 'backslashreplace')
     return val, offset + length
 
@@ -215,12 +217,9 @@ class Wechat(object):
         city, offset = self._get_val_offset(profile, offset + 1)
       elif profile[offset] == 0x2a:
         signature, offset = self._get_val_offset(profile, offset + 1)
-      elif profile[offset] == 0x81:  # ?
-        offset += 1
-      elif profile[offset] == 0x82:
-        __, offset = self._get_val_offset(profile, offset + 1)
       else:
-        self.L.debug('profile %x: %r', profile[offset], profile)
+        # 0x30 - 0x7a  no idea
+        __, offset = self._get_val_offset(profile, offset + 1)
     return gender, country, state, city, signature
 
   def _get_group_info(self, room):
@@ -310,12 +309,12 @@ class Wechat(object):
       return False
     # dest
     try:
-      self._dest = expanduser(args['dest']) or None
+      self._dest = expandvars(expanduser(args['dest'])) or None
     except KeyError:
       self._dest = None
     # log
     try:
-      self._log_file = expanduser(args['log']) or None
+      self._log_file = expandvars(expanduser(args['log'])) or None
     except KeyError:
       self._log_file = None
     if self._log_file:
@@ -354,9 +353,10 @@ class Wechat(object):
 
   def handle_mbdb(self):
     def iter_mmdb():
+      db_name_pat = re_compile(r'^message_(\d+)\.sqlite$')
       for db in self.mbdb:
         mbdb = self._load_manifest_db(db)
-        mmsqlite = defaultdict(lambda: defaultdict(str))
+        mmsqlite = defaultdict(dict)
         self.L.info('Finding in %s', dirname(db))
         for offset, fileinfo in mbdb.items():
           if fileinfo['domain'] == 'AppDomain-com.tencent.xin':
@@ -368,43 +368,55 @@ class Wechat(object):
               mmsqlite[docpath]['mm'] = fileinfo['filehash']
             elif fname == 'WCDB_Contact.sqlite':
               mmsqlite[docpath]['contacts'] = fileinfo['filehash']
+            else:
+              try:
+                n = int(db_name_pat.findall(fname)[0])
+              except IndexError:
+                continue
+              try:
+                mmsqlite[docpath]['chats'][n] = (fname, fileinfo['filehash'])
+              except KeyError:
+                mmsqlite[docpath]['chats'] = {n: (fname, fileinfo['filehash'])}
         for k, v in mmsqlite.items():
-          self.L.info('Found in %s', k)
+          self.L.info('\nFound in %s', k)
           self.L.info(' MM.sqlite:           %s', v['mm'])
           self.L.info(' WCDB_Contact.sqlite: %s', v['contacts'])
-          yield k, v['path'], v['mm'], v['contacts']
+          for n, p in sorted(v['chats'].items()):
+            self.L.info(f' {p[0]:<19}: {p[1]}')
+          yield k, v['path'], v['mm'], [x[1] for x in sorted(v['chats'].values())], v['contacts']
     self.mmdb = iter_mmdb()
 
   def parse_mmdb(self):
     def iter_conversation():
-      for i, (docpath, path, mm_db, contacts_db) in enumerate(self.mmdb):
+      for i, (docpath, path, mm_db, chats_dbs, contacts_db) in enumerate(self.mmdb):
         contacts, groups, duplicates = self._load_contacts(path_join(path, contacts_db))
         i = str(i)
-        for namehash, chats in self._load_chats(path_join(path, mm_db)):
-          messages = deque()
-          try:
-            uid, mmid, nickname, dispname = contacts[namehash][:4]
-          except KeyError:
-            uid, mmid, nickname, dispname = '', '', '', '未保存的群' + namehash
-          filename = self._get_valid_filename((dispname, nickname, mmid, uid))
-          if namehash in duplicates:
-            filename += '({})'.format(self._get_valid_filename((mmid, uid)))
-          self.L.debug(filename)
-          for chat in chats:
-            timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
+        for chats_db in [mm_db] + chats_dbs:
+          for namehash, chats in self._load_chats(path_join(path, chats_db)):
+            messages = deque()
             try:
-              msgtype = self._get_msg_type(chat[1], chat[3])
+              uid, mmid, nickname, dispname = contacts[namehash][:4]
             except KeyError:
-              self.L.error('Unknown msg type: %d', chat[1])
-              msgtype = chat[1]
-            direction = self._get_msg_direction(chat[2])
-            msg = chat[3].strip()
-            sender, s_msg = self._get_sender(msg, contacts)
-            s_uid, s_mmid, s_nick, s_disp = sender[:4]
-            messages.append((timestamp, msgtype, direction, s_uid or uid,
-                s_mmid or mmid, s_nick or nickname, s_disp or dispname,
-                s_msg or msg))
-          yield i, filename, messages, 'log'
+              uid, mmid, nickname, dispname = '', '', '', '未保存的群' + namehash
+            filename = self._get_valid_filename((dispname, nickname, mmid, uid))
+            if namehash in duplicates:
+              filename += '({})'.format(self._get_valid_filename((mmid, uid)))
+            self.L.debug(filename)
+            for chat in chats:
+              timestamp = strftime('%Y-%m-%d %X', localtime(chat[0]))
+              try:
+                msgtype = self._get_msg_type(chat[1], chat[3])
+              except KeyError:
+                self.L.error('Unknown msg type: %d', chat[1])
+                msgtype = chat[1]
+              direction = self._get_msg_direction(chat[2])
+              msg = chat[3].strip()
+              sender, s_msg = self._get_sender(msg, contacts)
+              s_uid, s_mmid, s_nick, s_disp = sender[:4]
+              messages.append((timestamp, msgtype, direction, s_uid or uid,
+                  s_mmid or mmid, s_nick or nickname, s_disp or dispname,
+                  s_msg or msg))
+            yield i, filename, messages, 'log'
         # Save contacts
         yield i, 'Contacts', contacts.values(), 'contacts'
         # Save groups
