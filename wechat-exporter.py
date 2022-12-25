@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# vim: fileencoding=utf-8
 
 from os import makedirs, getenv, sep as os_sep, walk as os_walk
 from re import compile as re_compile
@@ -7,11 +6,11 @@ from bz2 import open as bz2_open
 from csv import writer as csv_writer
 from time import localtime, strftime
 from hashlib import md5, sha1
-from logging import getLogger, StreamHandler, FileHandler, Formatter, INFO, DEBUG
-from os.path import isfile, isdir, dirname, basename, expandvars, expanduser, join as path_join
+from logging import getLogger, StreamHandler, FileHandler, Formatter, DEBUG
+from os.path import isfile, dirname, basename, expandvars, expanduser, join as path_join
 from sqlite3 import connect as sqlite_connect
 from platform import system
-from collections import defaultdict, namedtuple, deque
+from collections import defaultdict, deque
 from configparser import ConfigParser
 
 
@@ -24,6 +23,7 @@ def getint(data, offset, intsize):
     intsize -= 1
   return value, offset
 
+
 def getbytes(data, offset):
   """ Retrieve a string and new offset from the current offset into the data """
   if data[offset] == 0xFF and data[offset + 1] == 0xFF:
@@ -32,14 +32,17 @@ def getbytes(data, offset):
   value = data[offset:offset + length]
   return value, (offset + length)
 
+
 def getstr(data, offset):
   value, offset = getbytes(data, offset)
   value = value.decode('utf8')
   return value, offset
 
+
 def process_mbdb_file(filename):
   mbdb = {}
-  data = open(filename, "rb").read()
+  with open(filename, "rb") as fi:
+    data = fi.read()
   if data[0:4] != b"mbdb":
     raise Exception("This does not look like an MBDB file")
   offset = 4
@@ -65,7 +68,7 @@ def process_mbdb_file(filename):
     fileinfo['flag'],       offset = getint(data, offset, 1)
     fileinfo['numprops'],   offset = getint(data, offset, 1)
     fileinfo['properties'] = {}
-    for i in range(fileinfo['numprops']):
+    for __ in range(fileinfo['numprops']):
       propname, offset = getstr(data, offset)
       propval,  offset = getbytes(data, offset)
       fileinfo['properties'][propname] = propval
@@ -78,7 +81,7 @@ def process_mbdb_file(filename):
 class Sqlite(object):
   def __init__(self, fname):
     if not isfile(fname):
-      raise Exception('Database does not exist: %s' % fname)
+      raise Exception(f'Database does not exist: {fname}')
     self.fname = fname
 
   def __enter__(self):
@@ -96,6 +99,7 @@ class Sqlite(object):
 
 class Wechat(object):
   _conf_file = path_join(dirname(__file__), 'conf-wechat-exporter.ini')
+
   def __init__(self):
     self._fn_pat = re_compile(r'[<>;:"/|?*\\]+')
     self._init_logger()
@@ -115,7 +119,7 @@ class Wechat(object):
     # Manifest.db
     mbdb = {}
     with Sqlite(db) as con:
-      tables = con.get_query('SELECT fileID, domain, relativePath FROM Files WHERE relativePath!=""')
+      tables = con.get_query("SELECT fileID, domain, relativePath FROM Files WHERE relativePath != ''")
       for fid, domain, path in tables:
         fileinfo = {}
         fileinfo['filename'] = path
@@ -142,26 +146,26 @@ class Wechat(object):
           groups_id[group_name] = self._get_group_info(room)
       groups = {k: [self._get_contact_info(x, contacts) for x in v] for k, v in groups_id.items()}
       duplicates = set()
-      for f, hashes in filenames.items():
+      for hashes in filenames.values():
         if len(hashes) > 1:
           duplicates |= hashes
       return contacts, groups, duplicates
 
   def _load_chats(self, db):
     with Sqlite(db) as con:
-      tables = con.get_query('SELECT name FROM sqlite_master WHERE type="table";')
+      tables = con.get_query("SELECT name FROM sqlite_master WHERE type = 'table';")
       for table in tables:
         if table[0].startswith('Chat_'):
           namehash = table[0][5:]
           yield (namehash,
-              con.get_query('SELECT CreateTime, Type, Des, Message FROM %s;' % table[0]))
+                 con.get_query(f'SELECT CreateTime, Type, Des, Message FROM {table[0]};'))
 
   def _get_val_offset(self, buf, start):
     offset = start + 1
     if start >= len(buf):
       return '', offset
     length = buf[start]
-    val = buf[offset : offset + length].decode('utf8', 'backslashreplace')
+    val = buf[offset:offset + length].decode('utf8', 'backslashreplace')
     return val, offset + length
 
   def _parse_name(self, remark):
@@ -205,8 +209,8 @@ class Wechat(object):
         break
       if profile[offset] == 0x08:
         gender = {
-          1: '男',
-          2: '女',
+            1: '男',
+            2: '女',
         }.get(profile[offset + 1], '')
         offset += 2
       elif profile[offset] == 0x12:
@@ -236,33 +240,37 @@ class Wechat(object):
     return members.split(';')
 
   def _get_msg_type(self, tp, content):
-    if tp == 50:
-      if content == 'voip_content_voice':
-        return '语音通话'
-      elif content == 'voip_content_video':
-        return '视频通话'
-    return {
-      1: '文本',
-      3: '图片',
-      34: '语音',
-      35: '邮件',
-      42: '名片',
-      43: '视频',
-      44: '视频',
-      47: '表情',
-      48: '位置',
-      49: '链接',
-      50: '通话',
-      62: '视频',
-      64: '语音通话',
-      10000: '系统消息',
-      10002: '撤回的消息'
-    }[tp]
+    try:
+      if tp == 50:
+        return {
+            'voip_content_voice': '语音通话',
+            'voip_content_video': '视频通话',
+        }[content]
+      return {
+          1: '文本',
+          3: '图片',
+          34: '语音',
+          35: '邮件',
+          42: '名片',
+          43: '视频',
+          44: '视频',
+          47: '表情',
+          48: '位置',
+          49: '链接',
+          50: '通话',
+          62: '视频',
+          64: '语音通话',
+          66: '企业微信名片',
+          10000: '系统消息',
+          10002: '撤回的消息'
+      }[tp]
+    except KeyError:
+      return '未知'
 
   def _get_msg_direction(self, des):
     return {
-      1: '接收',
-      0: '发送',
+        1: '接收',
+        0: '发送',
     }[des]
 
   def _get_contact_info(self, mmid, contacts):
@@ -303,7 +311,7 @@ class Wechat(object):
       self._root = args['root']
     elif system() == 'Windows':
       self._root = path_join(getenv('APPDATA'),
-                            r'Apple Computer\MobileSync\Backup')
+                             r'Apple Computer\MobileSync\Backup')
     else:
       self.L.error('请设置“备份根目录”')
       return False
@@ -324,7 +332,7 @@ class Wechat(object):
         pass
       handler = FileHandler(self._log_file, encoding='utf8')
       handler.setFormatter(Formatter(
-        '%(asctime)s[%(levelname)s]%(filename)s:%(lineno)d(%(funcName)s) %(message)s'))
+          '%(asctime)s[%(levelname)s]%(filename)s:%(lineno)d(%(funcName)s) %(message)s'))
       self.L.addHandler(handler)
     # compress
     try:
@@ -358,7 +366,7 @@ class Wechat(object):
         mbdb = self._load_manifest_db(db)
         mmsqlite = defaultdict(dict)
         self.L.info('Finding in %s', dirname(db))
-        for offset, fileinfo in mbdb.items():
+        for fileinfo in mbdb.values():
           if fileinfo['domain'] == 'AppDomain-com.tencent.xin':
             fpath = fileinfo['filename']
             docpath = dirname(fpath)
@@ -388,7 +396,7 @@ class Wechat(object):
 
   def parse_mmdb(self):
     def iter_conversation():
-      for i, (docpath, path, mm_db, chats_dbs, contacts_db) in enumerate(self.mmdb):
+      for i, (__, path, mm_db, chats_dbs, contacts_db) in enumerate(self.mmdb):
         contacts, groups, duplicates = self._load_contacts(path_join(path, contacts_db))
         i = str(i)
         for chats_db in [mm_db] + chats_dbs:
@@ -414,8 +422,8 @@ class Wechat(object):
               sender, s_msg = self._get_sender(msg, contacts)
               s_uid, s_mmid, s_nick, s_disp = sender[:4]
               messages.append((timestamp, msgtype, direction, s_uid or uid,
-                  s_mmid or mmid, s_nick or nickname, s_disp or dispname,
-                  s_msg or msg))
+                               s_mmid or mmid, s_nick or nickname,
+                               s_disp or dispname, s_msg or msg))
             yield i, filename, messages, 'log'
         # Save contacts
         yield i, 'Contacts', contacts.values(), 'contacts'
